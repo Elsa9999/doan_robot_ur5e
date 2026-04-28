@@ -1,12 +1,19 @@
 """
-simulation/object_detector.py — Detect vật thể và tính pick/place poses.
+simulation/object_detector.py — Camera ảo (Object Detector) dùng Raycast.
+
+NGUYÊN LÝ HOẠT ĐỘNG:
+- Thay vì dùng camera thực + thuật toán thị giác (OpenCV), ta dùng PyBullet Raycast.
+- Raycast = Bắn 1 tia laser ảo từ đầu robot thẳng xuống mặt bàn.
+- Nếu tia chạm vào vật thể → Trả về tọa độ (X, Y, Z) chính xác của vật.
+- Ngoài ra, lớp này còn tính sẵn các tư thế tiếp cận (Approach), gắp (Pick), nhấc (Lift).
 """
 import pybullet as p
 
 
 class ObjectDetector:
     """
-    Phát hiện vật thể bằng getBasePosition + raycast visualization.
+    Lớp phát hiện vật thể bằng Raycast (tia laser ảo) và
+    tính toán các tư thế gắp/thả cho robot.
     """
 
     def __init__(self, env):
@@ -29,8 +36,10 @@ class ObjectDetector:
 
     def raycast_detect(self, ee_pos: list, max_dist: float = 0.5) -> dict:
         """
-        Bắn tia từ EE thẳng xuống, visualize kết quả.
-        Return dict nếu hit, None nếu không.
+        Bắn tia laser ảo từ vị trí End-Effector thẳng xuống (theo trục Z âm).
+        - Tia dài tối đa 0.5m (nửa mét).
+        - Nếu tia chạm vật thể → Vẽ tia xanh + trả về tọa độ.
+        - Nếu không chạm gì → Vẽ tia đỏ + trả về None.
         """
         ray_start = list(ee_pos)
         ray_end   = [ee_pos[0], ee_pos[1], ee_pos[2] - max_dist]
@@ -75,7 +84,12 @@ class ObjectDetector:
                            object_pos: list,
                            approach_height: float = 0.15,
                            pick_clearance: float  = 0.01) -> dict:
-        """Tính approach / pick / lift poses từ vị trí vật."""
+        """
+        Tính 3 tư thế cho quy trình Gắp:
+        1. Approach: Bay trên đầu vật 15cm (an toàn, không va chạm).
+        2. Pick: Hạ xuống sát vật (cách 1cm để giác hút chạm).
+        3. Lift: Nhấc vật lên cao 20cm để di chuyển an toàn.
+        """
         x, y, z = object_pos
         return {
             'approach': [x, y, z + approach_height],
@@ -86,7 +100,11 @@ class ObjectDetector:
     def compute_place_poses(self,
                             bin_center: list,
                             place_height: float = 0.15) -> dict:
-        """Tính above_bin / place poses từ tâm bin."""
+        """
+        Tính 2 tư thế cho quy trình Thả:
+        1. Above bin: Bay trên miệng thùng 15cm.
+        2. Place: Hạ xuống lòng thùng 8cm rồi nhả.
+        """
         x, y, z = bin_center
         return {
             'above_bin': [x, y, z + place_height],

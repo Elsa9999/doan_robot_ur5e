@@ -1,8 +1,18 @@
+"""
+hmi/app.py — Điểm khởi chạy chương trình (Entry Point).
+
+THỨ TỰ KHỜI ĐỘNG:
+1. Import PyTorch TRƯỚC PyQt5 (để tránh lỗi WinError 1114 trên Windows).
+2. Hiện Splash Screen (“Đang khởi động...”).
+3. Tạo SimBridge (khởi tạo PyBullet + load Robot + load AI Model) trong Thread nền.
+4. Chờ SimBridge sẵn sàng (tối đa 10 giây).
+5. Mở cửa sổ MainWindow chính.
+"""
 import sys
 import os
 import time
 
-# Quan trọng nhất: Fix Crash trên Windows [WinError 1114]
+# [QUAN TRỌNG] Fix Crash trên Windows [WinError 1114]
 # Thư viện mạng Nơ-ron (PyTorch) BẮT BUỘC phải được import trước PyQt5
 import torch
 
@@ -81,7 +91,7 @@ def main():
     except Exception:
         pass
 
-    print("[APP] MainWindow đã hiển thị. Vào event loop...")
+    print("[APP] MainWindow ready. Entering event loop...")
     sys.exit(app.exec_())
 
 

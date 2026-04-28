@@ -1,5 +1,11 @@
 """
-simulation/gripper.py — VacuumGripper simulation bằng PyBullet constraint.
+simulation/gripper.py — Mô phỏng Giác hút Chân không (Vacuum Gripper).
+
+NGUYÊN LÝ HOẠT ĐỘNG:
+- Trong thực tế: Giác hút dùng bơm chân không tạo áp suất âm để hút dính vật thể.
+- Trong mô phỏng: Ta dùng PyBullet Constraint (ràng buộc vật lý) loại JOINT_FIXED 
+  để "dán cứng" vật thể vào đầu kẹp End-Effector.
+- Khi "nhả": Xóa Constraint → Vật thể rơi tự do theo trọng lực.
 """
 import pybullet as p
 import math
@@ -7,8 +13,10 @@ import math
 
 class VacuumGripper:
     """
-    Mô phỏng gripper hút chân không.
-    Dùng JOINT_FIXED constraint để gắn vật vào EE.
+    Lớp mô phỏng Giác hút Chân không.
+    - activate(object_id): Tạo ràng buộc cứng giữa mũi robot và vật thể (= hút dính).
+    - release(): Xóa ràng buộc (= nhả vật, rơi tự do).
+    - draw_indicator(): Vẽ vòng tròn xanh/đỏ quanh mũi robot để biết đang hút hay không.
     """
 
     _INDICATOR_LINES = 8    # số điểm vẽ vòng tròn
@@ -26,8 +34,9 @@ class VacuumGripper:
 
     def activate(self, object_id: int) -> bool:
         """
-        Gắn vật vào EE bằng JOINT_FIXED constraint.
-        Tính offset cục bộ để vật không bị nhảy vị trí.
+        Kích hoạt giác hút — Gắn vật vào End-Effector bằng JOINT_FIXED Constraint.
+        Tính toán offset cục bộ (local frame) giữa EE và vật để vật không bị "nhảy"
+        (teleport) về tâm EE khi tạo ràng buộc.
         """
         if self._activated:
             self.release()
@@ -41,7 +50,9 @@ class VacuumGripper:
         # Lấy pose vật (world frame)
         obj_pos, obj_orn = p.getBasePositionAndOrientation(object_id)
 
-        # Tính offset vật so với EE trong frame EE
+        # Tính offset vật so với EE trong hệ tọa độ cục bộ (Local Frame) của EE.
+        # Bước này CỰC KỲ QUAN TRỌNG: Nếu không tính offset, vật sẽ bị kéo giật
+        # về tâm EE gây ra lực vật lý bùng nổ (Physics Explosion).
         inv_ee_pos, inv_ee_orn = p.invertTransform(ee_pos, ee_orn)
         obj_local_pos, obj_local_orn = p.multiplyTransforms(
             inv_ee_pos, inv_ee_orn,
@@ -89,7 +100,10 @@ class VacuumGripper:
     # ─── Visual indicator ─────────────────────────────────────────────────────
 
     def draw_indicator(self):
-        """Vẽ vòng tròn xanh (active) hoặc đỏ (inactive) quanh EE."""
+        """Vẽ vòng tròn 3D quanh đầu hút để hiển thị trạng thái trực quan.
+        - Xanh lá (Green): Đang hút dính vật thể.
+        - Đỏ (Red): Không hoạt động / Đã nhả.
+        """
         # Lấy EE position
         link_state = p.getLinkState(self._robot_id, self._ee_link,
                                     computeForwardKinematics=True)

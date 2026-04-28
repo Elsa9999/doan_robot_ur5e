@@ -1,6 +1,14 @@
 """
-kinematics/trajectory.py — Trajectory planning engine.
-Hỗ trợ: Trapezoid velocity profile, Joint Space, Cartesian Space.
+kinematics/trajectory.py — Bộ Quy hoạch Quỹ đạo (Trajectory Planning Engine).
+
+NGUYÊN LÝ HOẠT ĐỘNG:
+- Robot không thể nhảy tức thời từ điểm A sang B (gia tốc vô hạn sẽ phá hỏng mô-tơ).
+- Cần chia quãng đường thành hàng nghìn điểm nhỏ, mỗi điểm cách nhau 1/240 giây.
+
+HỖ TRỢ 3 LOẠI QUỸ ĐẠO:
+1. Trapezoid Profile: Biên dạng vận tốc hình thang (Tăng tốc → Đều ga → Giảm tốc).
+2. JointTrajectory: Nội suy trong không gian khớp (góc quay 6 mô-tơ).
+3. CartesianTrajectory: Nội suy đường thẳng trong không gian XYZ (cần gọi IK tại mỗi điểm).
 """
 import numpy as np
 from scipy.interpolate import CubicSpline
@@ -20,8 +28,17 @@ def trapezoid_profile(
     dt: float = 1 / 240
 ) -> np.ndarray:
     """
-    Tính mảng position theo thời gian với vận tốc hình thang.
-    Luôn trả về mảng đi từ 0.0 đến |distance|, sau đó scale dấu (chiều đi).
+    Tạo biểu đồ vận tốc hình thang (Trapezoid Velocity Profile).
+    
+    Vận tốc
+      │     ___________
+      │    /           \          ← v_max (tốc độ tối đa)
+      │   /             \
+      │  /               \
+      └──────────────────── thời gian
+      Tăng tốc   Đều ga   Giảm tốc
+    
+    Nếu quãng đường quá ngắn (không kịp đạt v_max) → Tự động chuyển sang biên dạng tam giác.
     """
     dist_abs = abs(distance)
     if dist_abs < 1e-9:
@@ -70,6 +87,11 @@ def trapezoid_profile(
 # ─────────────────────────────────────────────────────────────────────────────
 
 class JointTrajectory:
+    """
+    Quỹ đạo trong không gian khớp (Joint Space).
+    Nội suy trực tiếp 6 góc quay từ giá trị bắt đầu đến kết thúc.
+    Robot sẽ đi theo đường cong trong không gian khớp (đường đi có thể là cung tròn trong XYZ).
+    """
     def __init__(
         self,
         timestamps: np.ndarray,   # (N,)
@@ -198,6 +220,11 @@ class JointTrajectory:
 # ─────────────────────────────────────────────────────────────────────────────
 
 class CartesianTrajectory:
+    """
+    Quỹ đạo trong không gian tọa độ (Cartesian Space).
+    Nội suy tọa độ XYZ theo ĐƯỜNG THẲNG. Robot đi thẳng tắp như máy CNC.
+    Tại mỗi điểm nhỏ trên đường thẳng, phải gọi hàm IK để chuyển XYZ → 6 góc khớp.
+    """
     def __init__(self, timestamps, positions, eulers):
         self.timestamps = timestamps   # (N,)
         self.positions  = positions    # (N, 3)
@@ -266,6 +293,12 @@ class CartesianTrajectory:
         q_start: list,
         dt: float = 1 / 240
     ) -> JointTrajectory:
+        """
+        CHUYỂN ĐỔI QUỸ ĐẠO CARTESIAN → JOINT.
+        Tại mỗi điểm XYZ trên đường thẳng, gọi hàm IK (inverse_kinematics)
+        để tính ra 6 góc khớp tương ứng. Kết quả: robot đi thẳng trong XYZ
+        nhưng vẫn được điều khiển bằng góc khớp (vì mô-tơ chỉ hiểu góc quay).
+        """
         from kinematics.inverse_kinematics import inverse_kinematics
         from utils.transforms import world_to_local
 

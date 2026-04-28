@@ -1,5 +1,11 @@
 """
-Workspace Validator — kiểm tra vị trí EE có hợp lệ không.
+kinematics/workspace_validator.py — Cảnh sát Vùng cấm (Workspace Safety Validator).
+
+NGUYÊN LÝ HOẠT ĐỘNG:
+- Kiểm tra tọa độ XYZ của đầu kẹp (End-Effector) có nằm trong vùng làm việc an toàn không.
+- Ngăn chặn robot đập tay xuống bàn (Z quá thấp), vươn ra ngoài (X/Y quá xa),
+  hoặc đâm vào thùng rác (đi qua vùng cấm bin).
+- Mọi lệnh di chuyển Manual/Auto đều phải qua bộ lọc này trước khi thực thi.
 """
 
 WORKSPACE_LIMITS = {
@@ -10,20 +16,23 @@ WORKSPACE_LIMITS = {
     'z_min':  0.44,   # TABLE_SURFACE (0.42) + 0.02 safety margin
     'z_max':  1.40,
 
-    # Vùng cấm — bin box
+    # Vùng cấm — bin box (thu hẹp khớp kích thước thật + 5cm margin)
+    # BIN_CENTER = [0.65, -0.28], BIN_HALF = [0.096, 0.071]
     'bin_forbidden': {
-        'x': (0.45, 0.75),
-        'y': (-0.45, -0.15),
-        'z': (0.42, 0.60),
+        'x': (0.50, 0.75),    # 0.65 ± 0.10 + margin
+        'y': (-0.40, -0.16),  # -0.28 ± 0.12 + margin  
+        'z': (0.42, 0.55),    # chỉ cấm vùng thấp bên trong bin
     }
 }
 
 
 class WorkspaceValidator:
+    """Kiểm tra và giới hạn vị trí End-Effector trong không gian làm việc an toàn."""
     def __init__(self, limits=None):
         self._lim = limits if limits is not None else WORKSPACE_LIMITS
 
     def is_valid_ee(self, pos) -> tuple:
+        """Kiểm tra tọa độ EE có hợp lệ không. Trả về (True/False, lý do)."""
         x, y, z = float(pos[0]), float(pos[1]), float(pos[2])
         L = self._lim
 
@@ -43,6 +52,7 @@ class WorkspaceValidator:
         return True, "OK"
 
     def clamp_to_workspace(self, pos) -> list:
+        """Kẹp cứng tọa độ vào biên giới vùng làm việc (không cho vượt ra ngoài)."""
         L = self._lim
         x = max(L['x_min'], min(L['x_max'], float(pos[0])))
         y = max(L['y_min'], min(L['y_max'], float(pos[1])))
@@ -58,6 +68,7 @@ class WorkspaceValidator:
                 z < L['z_min'] + margin or z > L['z_max'] - margin)
 
     def validate_ik_solutions(self, solutions, fk_func) -> list:
+        """Lọc ra chỉ những nghiệm IK nào khi thực thi sẽ nằm trong vùng an toàn."""
         valid = []
         for q in solutions:
             result = fk_func(q)
