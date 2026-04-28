@@ -227,9 +227,17 @@ def inverse_kinematics(target_pos, target_euler, q_current=None, method='auto') 
     }
 
 if __name__ == "__main__":
-    print("-" * 50)
-    print("TESTING INVERSE KINEMATICS")
-    print("-" * 50)
+    # ══════════════════════════════════════════════════════════════════════════
+    # KIỂM CHỨNG ĐỘNG HỌC NGHỊCH (INVERSE KINEMATICS VERIFICATION)
+    # Phương pháp: Kiểm chứng Vòng lặp kín (Round-Trip Verification)
+    #   Bước 1: Nạp góc Q vào FK → Tính ra tọa độ XYZ
+    #   Bước 2: Nạp tọa độ XYZ vào IK → Giải ngược ra góc Q'
+    #   Bước 3: Nạp Q' vào FK → Tính ra XYZ' → So sánh XYZ vs XYZ'
+    # Tiêu chuẩn PASS: Sai lệch Euclidean < 1mm (0.001m)
+    # ══════════════════════════════════════════════════════════════════════════
+    print("=" * 55)
+    print("  KIỂM CHỨNG ĐỘNG HỌC NGHỊCH (IK VERIFICATION)")
+    print("=" * 55)
     
     def run_test(name, q_ref, expected_sols_min=1):
         """
@@ -279,31 +287,33 @@ if __name__ == "__main__":
 
     pass_all = True
     
-    # Test 1
+    # Test 1: Round-trip từ tư thế Home (tư thế nghỉ chuẩn công nghiệp)
     q_test1 = [0, -1.5708, 1.5708, -1.5708, -1.5708, 0]
-    pass_all &= run_test("Test 1 — Round-trip từ home pose", q_test1)
+    pass_all &= run_test("Test 1 — Round-trip từ Home Pose", q_test1)
     
-    # Test 2
+    # Test 2: Round-trip từ tư thế tùy ý (kiểm tra tính tổng quát)
     q_test2 = [0.5, -1.2, 1.0, -1.5, -1.5, 0.3]
-    pass_all &= run_test("Test 2 — Round-trip từ pose khác", q_test2)
+    pass_all &= run_test("Test 2 — Round-trip từ Pose tùy ý", q_test2)
     
-    # Test 3
-    print("\nTest 3 — Kiểm tra số solutions từ home pose")
+    # Test 3: Kiểm tra số lượng nghiệm (phải >= 2 vì UR5e luôn có ít nhất 2 cấu hình)
+    print("\nTest 3 — Kiểm tra số lượng cấu hình nghiệm (phải >= 2)")
     ik_res_3 = inverse_kinematics(forward_kinematics(q_test1)['position'], forward_kinematics(q_test1)['euler'])
     if ik_res_3['n_solutions'] >= 2:
-        print(f"=> PASS ({ik_res_3['n_solutions']} solutions)")
+        print(f"=> PASS ({ik_res_3['n_solutions']} solutions — Vai trái/phải, Khuỷu lên/xuống...)")
     else:
         print(f"=> FAIL (Chỉ tìm thấy {ik_res_3['n_solutions']} < 2 solutions)")
         pass_all = False
         
-    # Test 4
-    print("\nTest 4 — Out of reach")
+    # Test 4: Kiểm tra ngoài vùng làm việc (tọa độ XYZ = 5m, robot chỉ với tới ~0.85m)
+    # IK phải trả về None (không có nghiệm) → Chứng minh hệ thống nhận biết được giới hạn vật lý
+    print("\nTest 4 — Ngoài vùng làm việc (Out of Reach)")
     ik_res_4 = inverse_kinematics((5.0, 5.0, 5.0), (0, 0, 0))
     if ik_res_4['best'] is None:
-        print("=> PASS ('best' = None đúng mong đợi)")
+        print("=> PASS (IK trả về None — đúng kỳ vọng, robot không với tới)")
     else:
         print(f"=> FAIL (Đã tìm ra nghiệm sai: {ik_res_4['best']})")
         pass_all = False
         
-    print("-" * 50)
-    print("KẾT QUẢ TỔNG THỂ:", "PASS" if pass_all else "FAIL")
+    print("=" * 55)
+    print(f"  KẾT QUẢ TỔNG THỂ: {'✓ ALL PASSED' if pass_all else '✗ FAILED'}")
+    print("=" * 55)
