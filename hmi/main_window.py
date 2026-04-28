@@ -1,3 +1,23 @@
+"""
+hmi/main_window.py — Cửa sổ chính của giao diện điều khiển robot (MainWindow).
+
+CẤU TRÚC GIAO DIỆN:
+┌───────────────────────────────────────────────────┐
+│ Toolbar: [🏠 Home] [🔄 Reset] [🛑 EMERGENCY STOP]   │
+├─────────────────────────────────────┤─────────────┤
+│ Tab: Manual | Trajectory | Auto | AI   │ Status     │
+│ ┌────────────────┬────────────────┐ │ Panel      │
+│ │ Joint Panel  │ Cartesian Panel│ │ (tọa độ,   │
+│ │ (6 slider)  │ (XYZ + RPY)    │ │  gripper,  │
+│ └────────────────┴────────────────┘ │  mode)     │
+├─────────────────────────────────────┴─────────────┤
+│ Log Panel (console log sự kiện)                      │
+└───────────────────────────────────────────────────┘
+
+VÒNG LẶP CẬP NHẬT (50ms / 20 FPS):
+- Timer gọi _refresh_ui() mỗi 50ms để đọc trạng thái từ SimBridge
+  và cập nhật tất cả các panel hiển thị.
+"""
 import time
 from datetime import datetime
 from PyQt5.QtWidgets import (QMainWindow, QWidget, QSplitter, QScrollArea, 
@@ -17,28 +37,31 @@ from kinematics.workspace_validator import WorkspaceValidator
 from utils.transforms import local_to_world
 
 class MainWindow(QMainWindow):
+    """Cửa sổ chính của ứng dụng điều khiển robot UR5e."""
     def __init__(self, bridge):
         super().__init__()
-        self._bridge    = bridge
-        self._estop     = False
-        self._estop_state = False
-        self._validator = WorkspaceValidator()
+        self._bridge    = bridge        # Cầu nối đến PyBullet (SimBridge)
+        self._estop     = False          # Trạng thái nút dừng khẩn cấp
+        self._estop_state = False        # Trạng thái E-Stop từ bridge
+        self._validator = WorkspaceValidator()  # Bộ kiểm tra vùng an toàn
         
         self.setWindowTitle("UR5e Robot Controller — Manual Mode")
         self.resize(1280, 780)
         self.setMinimumSize(1024, 600)
         
-        self._apply_style()
-        self._setup_toolbar()
-        self._setup_central_widget()
-        self._setup_statusbar()
-        self._connect_signals()
+        self._apply_style()        # Áp dụng giao diện Dark Theme
+        self._setup_toolbar()      # Tạo thanh công cụ trên cùng
+        self._setup_central_widget()  # Tạo 4 tab điều khiển + Status Panel
+        self._setup_statusbar()    # Tạo thanh trạng thái dưới cùng
+        self._connect_signals()    # Kết nối sự kiện (Signal/Slot)
         
+        # Timer cập nhật giao diện mỗi 50ms (20 FPS) — đọc trạng thái từ SimBridge
         self.timer = QTimer(self)
         self.timer.timeout.connect(self._refresh_ui)
         self.timer.start(50)
         
     def _apply_style(self):
+        """Thiết lập Dark Theme cho toàn bộ giao diện (nền tối, chữ sáng)."""
         self.setStyleSheet("""
         QMainWindow, QWidget {
             background-color: #1e1e1e; color: #ffffff;
@@ -65,6 +88,7 @@ class MainWindow(QMainWindow):
         """)
         
     def _setup_toolbar(self):
+        """Tạo thanh công cụ với 3 nút: Home, Reset, và Emergency Stop."""
         toolbar = QToolBar("Main Toolbar")
         self.addToolBar(Qt.TopToolBarArea, toolbar)
         toolbar.setMovable(False)
@@ -129,6 +153,7 @@ class MainWindow(QMainWindow):
             self.log_panel.log("E-Stop cleared", 'INFO')
 
     def _setup_central_widget(self):
+        """Tạo khu vực chính: 4 tab điều khiển (bên trái) + Status Panel (bên phải) + Log Panel (bên dưới)."""
         main_splitter = QSplitter(Qt.Vertical)
         top_splitter  = QSplitter(Qt.Horizontal)
 
@@ -211,6 +236,7 @@ class MainWindow(QMainWindow):
         self.statusBar().addPermanentWidget(self.lbl_time)
         
     def _connect_signals(self):
+        """Kết nối tín hiệu (Signal) từ các Panel với hàm xử lý (Slot) của MainWindow."""
         self.joint_panel.joints_changed.connect(self._on_joints_changed)
         self.cartesian_panel.cartesian_go.connect(self._on_cartesian_go)
         self.cartesian_panel.cartesian_jog.connect(self._on_cartesian_jog)
@@ -279,6 +305,11 @@ class MainWindow(QMainWindow):
         self.log_panel.log(f"Auto mode started ({mode})", 'CMD')
         
     def _refresh_ui(self):
+        """
+        VÒNG LẶP CẬP NHẬT GIAO DIỆN (gọi mỗi 50ms = 20 FPS).
+        Đọc trạng thái từ SimBridge (tọa độ, góc khớp, gripper, mode...)
+        và cập nhật toàn bộ các panel hiển thị trên giao diện.
+        """
         state = self._bridge.get_state()
         if state is None: return
         
