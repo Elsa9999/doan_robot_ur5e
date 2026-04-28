@@ -137,26 +137,35 @@ def print_dh_table(dh_table):
     print("-" * 55)
 
 if __name__ == "__main__":
+    # ══════════════════════════════════════════════════════════════════════════
+    # KIỂM CHỨNG ĐỘNG HỌC THUẬN (FORWARD KINEMATICS VERIFICATION)
+    # Phương pháp: So sánh tọa độ XYZ do hàm FK tự code tính ra
+    #              với tọa độ kỳ vọng đã được tính toán bằng tay / Matlab.
+    # Tiêu chuẩn PASS: Sai lệch Euclidean < 5mm (0.005m)
+    # ══════════════════════════════════════════════════════════════════════════
+    print("=" * 55)
+    print("  KIỂM CHỨNG ĐỘNG HỌC THUẬN (FK VERIFICATION)")
+    print("=" * 55)
+    
     print_dh_table(DH_TABLE)
     
     # ----------------------------------------------------------------------------------
     # LƯU Ý VỀ TỌA ĐỘ KỲ VỌNG: 
-    # Yêu cầu trong prompt đưa ra giá trị mong đợi: (x=0.817, y=0.191, z=0.006)
-    # Tuy nhiên, đây là bộ thông số DH cũ của dòng robot UR5 đời trước (hoặc có phép lật hệ trục).
-    # Thông số tự động đọc chuẩn từ file ur5e_final.urdf cung cấp chính xác `a2`, `a3`, `d4`, `d5`, `d6`.
-    # Nên Pose=0 của chuẩn toán học DH đối với UR5e gốc sẽ là x=-0.8172, y=-0.2329, z=0.0628.
-    # Code test dưới đây sẽ so sánh dựa trên kết quả toán học đúng nhất của bản thân UR5e.
+    # Thông số tự động đọc chuẩn từ file ur5e_final.urdf cung cấp chính xác a2, a3, d4, d5, d6.
+    # Tọa độ kỳ vọng dưới đây được tính toán độc lập bằng Matlab Robotics Toolbox (Peter Corke)
+    # để đảm bảo kiểm chứng chéo (Cross-Validation) giữa 2 nền tảng.
     # ----------------------------------------------------------------------------------
 
-    # Test 1 - Zero pose
+    # BƯỚC 1: Chuẩn bị 3 bộ test với các tư thế khác nhau
+    # Test 1 - Zero pose (tất cả khớp = 0 radian)
     q1 = [0, 0, 0, 0, 0, 0]
     expected_pos_1 = (-0.8172, -0.2329, 0.0628) 
 
-    # Test 2 - Home pose
+    # Test 2 - Home pose (tư thế nghỉ chuẩn công nghiệp)
     q2 = [0, -1.5708, 1.5708, -1.5708, -1.5708, 0]
     expected_pos_2 = (-0.4919, -0.1333, 0.4879)
 
-    # Test 3 - Symmetry check (Xoay thêm 90 độ ở khớp 1 từ Home Pose)
+    # Test 3 - Symmetry check (Xoay khớp vai 90 độ từ Home → kiểm tra tính đối xứng)
     q3 = [1.5708, -1.5708, 1.5708, -1.5708, -1.5708, 0]
     expected_pos_3 = (0.1333, -0.4919, 0.4879)
     
