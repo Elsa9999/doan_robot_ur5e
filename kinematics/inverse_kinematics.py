@@ -57,14 +57,15 @@ def analytical_ik(T_target):
     2. Dùng ma trận quay (để tìm ra góc xoay của 3 khớp cổ tay).
     Đầu vào: T_target (Ma trận 4x4 đại diện cho vị trí XYZ và góc xoay RPY mong muốn của kẹp gắp).
     """
-    # Lấy thông số trực tiếp từ bảng DH_TABLE
-    d1 = DH_TABLE[0]['d'] 
-    a2 = DH_TABLE[1]['a'] 
-    a3 = DH_TABLE[2]['a'] 
-    d4 = DH_TABLE[3]['d']
-    d5 = DH_TABLE[4]['d']
-    d6 = DH_TABLE[5]['d']
+    # Lấy 6 thông số kích thước thực tế của UR5e từ bảng DH:
+    d1 = DH_TABLE[0]['d']   # 0.1625m — Chiều cao từ đế lên trục vai
+    a2 = DH_TABLE[1]['a']   # -0.4250m — Chiều dài bắp tay (Shoulder → Elbow)
+    a3 = DH_TABLE[2]['a']   # -0.3922m — Chiều dài cẳng tay (Elbow → Wrist)
+    d4 = DH_TABLE[3]['d']   # 0.1333m — Độ lệch ngang cổ tay 1
+    d5 = DH_TABLE[4]['d']   # 0.0997m — Độ lệch ngang cổ tay 2
+    d6 = DH_TABLE[5]['d']   # 0.0996m — Khoảng cách từ cổ tay đến mũi kẹp
     
+    # px, py, pz = Tọa độ đích (vị trí mong muốn của mũi kẹp) lấy từ cột cuối ma trận T
     px, py, pz = T_target[0,3], T_target[1,3], T_target[2,3]
     
     # BƯỚC 1 - TÌM TÂM CỔ TAY (WRIST CENTER)
@@ -72,11 +73,14 @@ def analytical_ik(T_target):
     # nhân với vector hướng dọc theo trục Z của End-Effector (T_target[:3, 2]).
     P05 = T_target[:3, 3] - d6 * T_target[:3, 2]
     
+    # r = Khoảng cách từ gốc robot đến tâm cổ tay nhìn từ trên xuống (chiếu xuống mặt phẳng XY)
     r = math.hypot(P05[0], P05[1])
     if r < abs(d4):
-        return [] # Nếu quá sát tâm, không có solution (out of reach)
+        return [] # Nếu quá sát tâm trục Z, không có nghiệm (vùng kỳ dị - singularity)
         
+    # phi = Góc nhìn từ trên xuống của tâm cổ tay trên mặt phẳng XY
     phi = math.atan2(P05[1], P05[0])
+    # asin_val = Góc lệch do offset d4 gây ra (cổ tay không thẳng hàng với vai)
     asin_val = math.asin(d4 / r)
     
     # BƯỚC 2 - GIẢI KHỚP VAI THETA 1
@@ -88,12 +92,13 @@ def analytical_ik(T_target):
     for th1 in th1_sols:
         th1 = math.atan2(math.sin(th1), math.cos(th1))
         
-        # 3. theta5
+        # BƯỚC 3 - GIẢI KHỚP CỔ TAY THETA 5
+        # Sử dụng phương trình từ ma trận T₀₆ để tính cos(θ5)
         num = T_target[0,3] * math.sin(th1) - T_target[1,3] * math.cos(th1) - d4
-        c5 = num / d6
+        c5 = num / d6   # cos(θ5) = (px·sinθ1 - py·cosθ1 - d4) / d6
         if abs(c5) > 1.0:
-            if abs(c5) < 1.001: c5 = np.sign(c5) * 1.0
-            else: continue
+            if abs(c5) < 1.001: c5 = np.sign(c5) * 1.0  # Dung sai số học nhỏ
+            else: continue  # Vô nghiệm thật sự
             
         th5_val = math.acos(c5)
         
@@ -107,12 +112,16 @@ def analytical_ik(T_target):
                 th6_sols = [math.atan2( -B / math.sin(th5), A / math.sin(th5) )]
                 
             for th6 in th6_sols:
-                T1 = dh_transform(0, d1, np.pi/2, th1)
-                T5 = dh_transform(0, d5, -np.pi/2, th5)
-                T6 = dh_transform(0, d6, 0, th6)
+                # Tính ma trận biến đổi của từng khớp đã giải được
+                T1 = dh_transform(0, d1, np.pi/2, th1)    # Ma trận khớp vai
+                T5 = dh_transform(0, d5, -np.pi/2, th5)   # Ma trận khớp cổ tay 2
+                T6 = dh_transform(0, d6, 0, th6)           # Ma trận khớp cổ tay 3
                 
-                T56 = T5 @ T6
-                # Dùng inv để truy ngược lại T14
+                T56 = T5 @ T6  # Nhân 2 ma trận cổ tay lại
+                
+                # TÍNH NGƯỢC MA TRẬN ĐỂ TÌM T14:
+                # T₁₄ = T₁⁻¹ × T_target × T₅₆⁻¹
+                # T14 chứa thông tin các khớp giữa (khớp 2, 3, 4) mà ta cần giải tiếp
                 T14 = np.linalg.inv(T1) @ T_target @ np.linalg.inv(T56)
                 
                 P14x, P14y = T14[0,3], T14[1,3]
@@ -132,15 +141,18 @@ def analytical_ik(T_target):
                 for th3 in [th3_val, -th3_val]:
                     s3 = math.sin(th3)
                     
-                    # Tính theta2
+                    # BƯỚC 5 - GIẢI THETA 2 (góc nâng cánh tay)
+                    # Dùng atan2 kép: góc nhìn từ T14 trừ đi góc tam giác
                     th2 = math.atan2(P14y, P14x) - math.atan2(a3 * s3, a2 + a3 * c3)
                     
-                    # Lấy th4 từ tổng góc (do rục joint 2, 3, 4 song song)
+                    # BƯỚC 6 - GIẢI THETA 4 (góc cổ tay 1)
+                    # 3 khớp giữa (2,3,4) có trục song song → tổng góc cố định
                     th_sum = math.atan2(T14[1,0], T14[0,0])
-                    th4 = th_sum - th2 - th3
+                    th4 = th_sum - th2 - th3  # θ4 = θ_tổng - θ2 - θ3
                     
                     q = [th1, th2, th3, th4, th5, th6]
-                    q = [(x + math.pi) % (2*math.pi) - math.pi for x in q] # Normalize
+                    # Normalize về khoảng [-π, π] để so sánh và chọn nghiệm gần nhất
+                    q = [(x + math.pi) % (2*math.pi) - math.pi for x in q]
                     
                     if validate_limits(q):
                         sols.append(q)
@@ -156,14 +168,17 @@ def numerical_ik(T_target, q_current=None):
         q_current = [0, -math.pi/2, math.pi/2, -math.pi/2, -math.pi/2, 0]
         
     def cost(q):
+        """Hàm chi phí: đo độ lệch giữa tư thế hiện tại và tư thế mục tiêu."""
         T_curr = forward_kinematics(q)['T']
+        # Sai số vị trí: Tổng bình phương khoảng cách XYZ
         pos_err = np.sum((T_curr[:3, 3] - T_target[:3, 3])**2)
         
+        # Sai số hướng: Dùng Trace của tích 2 ma trận xoay (3 - Tr(R·Rᵀ) = 0 khi khớp hoàn toàn)
         R_curr = T_curr[:3, :3]
         R_target = T_target[:3, :3]
         rot_err = 3.0 - np.trace(R_curr @ R_target.T)
         
-        return pos_err + rot_err
+        return pos_err + rot_err  # Tổng 2 sai số → càng nhỏ càng tốt
         
     bounds = [(-6.28, 6.28)] * 6
     bounds[2] = (-3.14, 3.14)
@@ -184,9 +199,15 @@ def inverse_kinematics(target_pos, target_euler, q_current=None, method='auto') 
     Tùy chọn: method có thể ép cứng về 'analytical' hoặc 'numerical', mặc định là 'auto'.
     Trả về Dictionary chứa góc xoay của 6 khớp an toàn nhất.
     """
+    # LắP RÁP MA TRẬN MỤC TIÊU T_target (4x4):
+    # ┌              ┐
+    # │ R(3x3) | p(3x1) │   R = Ma trận xoay từ góc Euler (Roll, Pitch, Yaw)
+    # │--------+--------│   p = Tọa độ đích (X, Y, Z)
+    # │ 0 0 0  |   1    │
+    # └              ┘
     T_target = np.eye(4)
-    T_target[:3, :3] = euler_matrix(target_euler)
-    T_target[:3, 3] = target_pos
+    T_target[:3, :3] = euler_matrix(target_euler)  # Gán phần xoay (3x3 trên trái)
+    T_target[:3, 3] = target_pos                   # Gán phần tịnh tiến (cột cuối)
     
     sols = []
     used_method = method

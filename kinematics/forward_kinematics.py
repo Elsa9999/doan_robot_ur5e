@@ -17,11 +17,22 @@ def dh_transform(a, d, alpha, theta) -> np.ndarray:
     - theta (Joint angle): Góc xoay thực tế của mô-tơ (quanh trục Z).
     Ma trận kết quả trả về sẽ chứa thông tin Tịnh tiến và Xoay từ khớp i-1 sang khớp i.
     """
+    # ct = cos(theta), st = sin(theta) — góc quay thực tế của mô-tơ
     ct = np.cos(theta)
     st = np.sin(theta)
+    # ca = cos(alpha), sa = sin(alpha) — góc xoắn cố định giữa 2 trục Z
     ca = np.cos(alpha)
     sa = np.sin(alpha)
     
+    # Ma trận 4x4 theo công thức DH chuẩn (Standard Convention):
+    # ┌                                                 ┐
+    # │ cos(θ)  -sin(θ)·cos(α)   sin(θ)·sin(α)  a·cos(θ) │ ← Hàng X
+    # │ sin(θ)   cos(θ)·cos(α)  -cos(θ)·sin(α)  a·sin(θ) │ ← Hàng Y
+    # │ 0        sin(α)          cos(α)          d        │ ← Hàng Z
+    # │ 0        0               0               1        │ ← Hệ số đồng nhất
+    # └                                                 ┘
+    # Cột 1-3 (3x3 trên trái): Ma trận Xoay (Rotation) — hướng trục tọa độ mới.
+    # Cột 4 (3x1 trên phải): Vector Tịnh tiến (Translation) — vị trí gốc tọa độ mới.
     return np.array([
         [ct, -st*ca,  st*sa, a*ct],
         [st,  ct*ca, -ct*sa, a*st],
@@ -58,13 +69,13 @@ def parse_dh_from_urdf(urdf_path=None):
             rpy = [float(val) for val in origin.get('rpy').split()]
             joints_data[name] = {'xyz': xyz, 'rpy': rpy}
             
-    # Trích xuất DH parameters dựa vào cấu trúc UR5e chuẩn
-    d1 = joints_data['shoulder_pan_joint']['xyz'][2]
-    a2 = joints_data['elbow_joint']['xyz'][0]
-    a3 = joints_data['wrist_1_joint']['xyz'][0]
-    d4 = joints_data['wrist_1_joint']['xyz'][2]
-    d5 = abs(joints_data['wrist_2_joint']['xyz'][1])
-    d6 = abs(joints_data['wrist_3_joint']['xyz'][1])
+    # Trích xuất 6 thông số DH từ tọa độ trong file URDF:
+    d1 = joints_data['shoulder_pan_joint']['xyz'][2]  # Chiều cao từ đế lên vai = 0.1625m
+    a2 = joints_data['elbow_joint']['xyz'][0]          # Chiều dài bắp tay = -0.4250m
+    a3 = joints_data['wrist_1_joint']['xyz'][0]        # Chiều dài cẳng tay = -0.3922m
+    d4 = joints_data['wrist_1_joint']['xyz'][2]        # Offset cổ tay 1 = 0.1333m
+    d5 = abs(joints_data['wrist_2_joint']['xyz'][1])   # Offset cổ tay 2 = 0.0997m
+    d6 = abs(joints_data['wrist_3_joint']['xyz'][1])   # Offset đầu kẹp = 0.0996m
     
     dh_table = [
         {'joint': 1, 'a': 0,  'd': d1, 'alpha': np.pi/2,  'offset': 0},
@@ -77,11 +88,15 @@ def parse_dh_from_urdf(urdf_path=None):
     
     return dh_table
 
-# Biến global lưu DH table để dùng cho FK (tránh đọc file XML nhiều lần)
+# Biến global lưu bảng DH 6 hàng (đọc 1 lần duy nhất từ file URDF khi import module)
 DH_TABLE = parse_dh_from_urdf()
 
 def euler_from_matrix(R):
-    """Tính Euler ZYX (Roll, Pitch, Yaw) từ ma trận xoay 3x3"""
+    """
+    Tính 3 góc Euler (Roll, Pitch, Yaw) từ ma trận xoay 3x3.
+    Quy ước ZYX: Xoay quanh Z trước (Yaw) → rồi Y (Pitch) → rồi X (Roll).
+    Trả về tuple (Roll, Pitch, Yaw) đơn vị radian.
+    """
     sy = math.sqrt(R[0,0]*R[0,0] + R[1,0]*R[1,0])
     singular = sy < 1e-6
     if not singular:
@@ -104,6 +119,7 @@ def forward_kinematics(q: list) -> dict:
     - Vòng lặp For chạy qua 6 khớp, tính ma trận cục bộ T_i của từng khớp.
     - Nhân dồn các ma trận lại với nhau (Phép nhân ma trận T0_6 = T0_1 * T1_2 * ... * T5_6).
     """
+    # T = Ma trận đơn vị 4x4 (Identity Matrix) — điểm xuất phát = gốc tọa độ robot
     T = np.eye(4)
     # Lưu ý: Hệ trục base_link của URDF bị xoay 180 độ (Yaw=PI) so với chuẩn toán học DH.
     # Trong code này, ta giữ chuẩn toán học nguyên thuỷ của UR (base không xoay).
@@ -113,18 +129,20 @@ def forward_kinematics(q: list) -> dict:
         # Lấy thông số (a, d, alpha) tĩnh và góc quay theta (q[i]) động để nạp vào hàm
         Ti = dh_transform(dh['a'], dh['d'], dh['alpha'], float(q[i]) + dh['offset'])
         
-        # Phép toán @ trong thư viện Numpy chính là Phép nhân Ma trận (Matrix Multiplication)
-        # T mới = T cũ nhân với Ti
+        # Phép nhân ma trận chuỗi: T₀₆ = T₀₁ × T₁₂ × T₂₃ × T₃₄ × T₄₅ × T₅₆
+        # Sau 6 vòng lặp, T sẽ chứa vị trí + hướng của End-Effector so với gốc robot.
         T = T @ Ti
-        
+    
+    # T[0,3], T[1,3], T[2,3] = Tọa độ XYZ của mũi kẹp (cột cuối cùng của ma trận T)
     pos = (T[0,3], T[1,3], T[2,3])
+    # T[:3, :3] = Ma trận xoay 3x3 (góc trên trái) → Chuyển sang góc Euler (Roll, Pitch, Yaw)
     euler = euler_from_matrix(T[:3, :3])
     
     return {
-        'T': T,
-        'position': pos,
-        'euler': euler,
-        'q': q
+        'T': T,              # Ma trận biến đổi thuần nhất 4x4 đầy đủ
+        'position': pos,     # Tọa độ (X, Y, Z) của End-Effector (mét)
+        'euler': euler,      # Góc xoay (Roll, Pitch, Yaw) của End-Effector (radian)
+        'q': q               # Bộ 6 góc khớp đầu vào (để tham chiếu)
     }
 
 def print_dh_table(dh_table):
